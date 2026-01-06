@@ -1,0 +1,7 @@
+{
+  "name": "MedScribe AI",
+  "description": "A high-performance AI medical scribe for doctors to record patient consultations and automatically generate structured medical notes and SOAP documentation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
