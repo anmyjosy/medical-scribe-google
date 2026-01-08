@@ -12,11 +12,24 @@ const assemblyClient = new AssemblyAI({
 });
 
 // Initialize Google Cloud Clients
-const keyFilename = path.join(process.cwd(), 'google-key.json');
-const storage = new Storage({ keyFilename });
-const googleClient = new SpeechClient({ keyFilename });
+const getGoogleClientConfig = () => {
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+        try {
+            const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+            return { credentials };
+        } catch (error) {
+            console.error('Error parsing GOOGLE_SERVICE_ACCOUNT_JSON:', error);
+        }
+    }
+    return { keyFilename: path.join(process.cwd(), 'google-key.json') };
+};
+
+const config = getGoogleClientConfig();
+
+const storage = new Storage(config);
+const googleClient = new SpeechClient(config);
 const googleClientV2 = new SpeechV2.SpeechClient({
-    keyFilename,
+    ...config,
     apiEndpoint: 'us-speech.googleapis.com' // Required for 'us' multi-region (Chirp 3)
 });
 const BUCKET_NAME = 'medscribe-temp-uploads';
