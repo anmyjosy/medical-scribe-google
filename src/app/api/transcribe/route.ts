@@ -13,24 +13,41 @@ const assemblyClient = new AssemblyAI({
 
 // Initialize Google Cloud Clients
 const getGoogleClientConfig = () => {
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    // 1. Check Environment Variable (Production/Netlify)
+    const envVar = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    if (envVar) {
         try {
-            const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+            console.log('[Auth] Found GOOGLE_SERVICE_ACCOUNT_JSON env var. Length:', envVar.length);
+            const credentials = JSON.parse(envVar);
             return { credentials };
         } catch (error) {
-            console.error('Error parsing GOOGLE_SERVICE_ACCOUNT_JSON:', error);
+            console.error('[Auth] Error parsing GOOGLE_SERVICE_ACCOUNT_JSON:', error);
+            // Fallback? or throw? For now let's fall back but log error.
         }
+    } else {
+        console.log('[Auth] GOOGLE_SERVICE_ACCOUNT_JSON env var not found.');
     }
-    return { keyFilename: path.join(process.cwd(), 'google-key.json') };
+
+    // 2. Fallback to Local File (Development)
+    const localPath = path.join(process.cwd(), 'google-key.json');
+    console.log('[Auth] Falling back to local file:', localPath);
+
+    // We can't easily check fail existence synchronously in edge/serverless without fs.existsSync, 
+    // but we can try-catch the client init or just return it. 
+    // If we are on Netlify and this file missing, it WILL crash as observed.
+
+    return { keyFilename: localPath };
 };
 
 const config = getGoogleClientConfig();
 
+// Wrap client creation to catch init errors immediately?
+// Actually simpler: just pass config. The error happens when these clients try to read the file.
 const storage = new Storage(config);
 const googleClient = new SpeechClient(config);
 const googleClientV2 = new SpeechV2.SpeechClient({
     ...config,
-    apiEndpoint: 'us-speech.googleapis.com' // Required for 'us' multi-region (Chirp 3)
+    apiEndpoint: 'us-speech.googleapis.com'
 });
 const BUCKET_NAME = 'medscribe-temp-uploads';
 
