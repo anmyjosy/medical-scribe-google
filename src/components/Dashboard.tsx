@@ -5,7 +5,7 @@ import AudioPlayer from './AudioPlayer';
 import { PrescriptionPad } from './PrescriptionPad';
 import { uploadPatientFile, getConsultationFiles, deletePatientFile } from '@/services/fileUploadService';
 import { User as UserType, Patient, MedicalNote, View, PatientFile, PrefilledPatientData } from '@/types';
-import { askGroq } from '@/services/groqService';
+import { askAI } from '@/services/aiService';
 
 // --- Types ---
 interface ChatMessage {
@@ -458,7 +458,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStart
 
       setIsTranslating(true);
       try {
-        const { translateText } = await import('../services/groqService');
+        const { translateText } = await import('../services/aiService');
         const content = selectedConsultation.content;
         const utterances = selectedConsultation.utterances || [];
         const insights = selectedConsultation.keyInsights || [];
@@ -591,7 +591,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStart
       prompt = `Suggest the most appropriate ICD-10 code(s) for the diagnosis. Provide ONLY the code and valid description. Do NOT use markdown. \n\nContext: ${content}`;
     }
 
-    const result = await askGroq(prompt);
+    const result = await askAI(prompt);
     setGenerationResult({ type, content: result });
     setIsGenerating(false);
   };
@@ -682,8 +682,8 @@ ${fileContext}
 `;
       }
 
-      const { askGroq } = await import('../services/groqService'); // Ensure import if not at top, or rely on top lvl
-      const response = await askGroq(userMessage.text, context);
+      const { askAI } = await import('../services/aiService'); // Ensure import if not at top, or rely on top lvl
+      const response = await askAI(userMessage.text, context);
 
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -1189,8 +1189,8 @@ ${fileContext}
                                 className={`flex gap-3 p-3 rounded-2xl cursor-pointer transition-all group hover:bg-slate-50`}
                               >
                                 {/* Avatar */}
-                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black shrink-0 ${speakerLabel === 'Doctor' ? 'bg-black text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                  {speakerLabel === 'Doctor' ? 'DR' : utterance.speaker.charAt(0).toUpperCase()}
+                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-black shrink-0 ${speakerLabel === 'Doctor' || speakerLabel === 'DOCTOR' ? 'bg-black text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                  {speakerLabel === 'Doctor' || speakerLabel === 'DOCTOR' ? 'DR' : utterance.speaker.charAt(0).toUpperCase()}
                                 </div>
 
                                 {/* Content */}
@@ -1277,7 +1277,7 @@ ${fileContext}
                                 if (!selectedConsultation) return;
                                 setIsGenerating(true);
                                 try {
-                                  const { generatePrescription } = await import('../services/groqService');
+                                  const { generatePrescription } = await import('../services/aiService');
                                   // Use rawTranscript or summary
                                   // Construct formatted transcript from utterances if available
                                   let text = selectedConsultation.rawTranscript || '';

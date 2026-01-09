@@ -2,8 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { MedicalNote, SOAPNote, TranscriptUtterance, PrefilledPatientData } from '@/types';
-import { processConsultation } from '@/services/assemblyaiService';
-import { generateKeyInsights } from '@/services/groqService';
+import { generateKeyInsights, processConsultation } from '@/services/aiService';
 import { WavRecorder } from '@/utils/WavRecorder';
 
 interface ScribeSessionProps {
@@ -286,6 +285,7 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
                   <option value="Malayalam">Malayalam</option>
                   <option value="Hindi">Hindi</option>
                   <option value="Arabic">Arabic</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
             </div>

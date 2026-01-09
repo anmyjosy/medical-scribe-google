@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
-
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY || ''
-});
+import { generateJson } from '@/services/geminiService';
 
 export async function POST(req: NextRequest) {
     try {
@@ -18,50 +14,39 @@ export async function POST(req: NextRequest) {
             .join('\n\n');
 
         const systemPrompt = `You are an expert medical scribe.
-Your task is to extract medical info from a consultation transcript.
+Your task is to generate a professional SOAP note from the consultation transcript.
 
-CRITICAL INSTRUCTIONS:
-1. **NO HALLUCINATIONS**: If a symptom, vital, or diagnosis is NOT in the transcript, DO NOT INVENT IT.
-   - If the transcript is not medical (e.g., random text about "moon", "weather", or "politics"), return a JSON where the title is "Non-Medical Content" and summary is "The transcript does not contain medical information.".
-2. **STRICT EXTRACTION**: 
-   - Vitals: Only output numeric values if explicitly spoken. Otherwise "Not recorded".
-   - Diagnosis: Only list what is discussed.
-3. **LANGUAGE**: The transcript may be in Malayalam, Hindi, or English. Translate the *meaning* into professional English for the SOAP note.
+TRANSCRIPT:
+${formattedConversation}
 
-Return a JSON object with this exact structure (all keys lowercase):
+INSTRUCTIONS:
+1. **Subjective**: Summarize the patient's complaints and history.
+2. **Objective**: Extract vitals (temperature, BP, pulse, RR) and physical appearance. If a vital is not mentioned, use "Not recorded".
+3. **Assessment**: Provide the likely diagnosis or medical impression based *only* on the discussion. Do not invent.
+4. **Plan**: List the treatment plan, medications, tests, or follow-up instructions discussed.
+
+OUTPUT FORMAT (JSON):
 {
-  "title": "Short title or 'Non-Medical Content'",
-  "summary": "Brief summary of the medical problem. If unrelated to health, state that.",
+  "summary": "Brief summary of the consultation",
+  "subjective": {
+    "chiefComplaint": "Patient's main concern",
+    "historyOfPresentIllness": "Details of the complaint"
+  },
   "objective": {
     "vitals": {
-        "temperature": "38°C" or "Not recorded", 
-        "bloodPressure": "120/80" or "Not recorded", 
-        "pulse": "72 bpm" or "Not recorded", 
-        "respiratoryRate": "16/min" or "Not recorded"
+        "temperature": "Value or 'Not recorded'", 
+        "bloodPressure": "Value or 'Not recorded'", 
+        "pulse": "Value or 'Not recorded'", 
+        "respiratoryRate": "Value or 'Not recorded'"
     },
-    "appearance": ["alert"] or ["Not recorded"]
+    "appearance": ["List of observations"]
   },
-  "assessment": "Diagnosis or 'No diagnosis'",
-  "plan": "Plan or 'No plan'"
-}`;
+  "assessment": "Diagnosis or medical impression",
+  "plan": "Detailed treatment plan, medications, and next steps"
+}
+`;
 
-        const completion = await groq.chat.completions.create({
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Consultation Transcript:\n${formattedConversation}` }
-            ],
-            model: 'llama-3.1-8b-instant',
-            response_format: { type: 'json_object' }
-        });
-
-        const content = completion.choices[0]?.message?.content || '{}';
-
-        let cleanJson = content.trim();
-        if (cleanJson.startsWith('```')) {
-            cleanJson = cleanJson.replace(/^```[a-z]*\n/i, '').replace(/\n```$/i, '');
-        }
-
-        const rawResult = JSON.parse(cleanJson);
+        const rawResult = await generateJson(systemPrompt); // generateJson handles prompting Gemini
 
         const soapNote = {
             summary: rawResult.summary || 'Consultation overview not available.',
@@ -78,7 +63,7 @@ Return a JSON object with this exact structure (all keys lowercase):
                 },
                 appearance: rawResult.objective?.appearance || ['Not documented']
             },
-            assessment: rawResult.assessment || 'Not documented',
+            assessment: rawResult.assessment || 'No specific diagnosis documented',
             plan: rawResult.plan || rawResult.actionPlan || 'No specific plan documented'
         };
 
