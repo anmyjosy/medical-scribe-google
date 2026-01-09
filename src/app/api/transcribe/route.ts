@@ -80,8 +80,9 @@ async function getOrCreateRecognizer(
     }
 }
 
+// --- 1. POST: Start Processing (Async) ---
 export async function POST(request: NextRequest) {
-    console.log('Processing transcription request via Google Cloud Hybrid Pipeline...');
+    console.log('[Async] Starting transcription request...');
 
     try {
         const formData = await request.formData();
@@ -100,13 +101,13 @@ export async function POST(request: NextRequest) {
         const isArabic = language.toLowerCase().includes('arabic') || language.toLowerCase().includes('ar');
         const isHindi = language.toLowerCase().includes('hindi') || language.toLowerCase().includes('hi');
 
-        // Normalize language code
+        // Normalize
         if (isMalayalam) language = 'ml-IN';
         else if (isArabic) language = 'ar-BH';
         else if (isHindi) language = 'hi-IN';
         else if (!language.includes('-')) language = 'en-US';
 
-        console.log(`Language Identity: ${language}, Mime: ${mimeType}`);
+        console.log(`[Async] Language: ${language}, Mime: ${mimeType}`);
 
         // 1. Upload to GCS
         const filename = `audio-${Date.now()}-${Math.random().toString(36).substring(7)}${mimeType.includes('mp3') ? '.mp3' : mimeType.includes('webm') ? '.webm' : '.wav'}`;
@@ -114,25 +115,24 @@ export async function POST(request: NextRequest) {
         const fileUpload = bucket.file(filename);
         const gcsUri = `gs://${BUCKET_NAME}/${filename}`;
 
-        console.log(`Uploading to GCS: ${gcsUri}`);
+        // Output URI for the result JSON (used by GET)
+        const outputUri = gcsUri + '.json';
+
+        console.log(`[Async] Uploading to GCS: ${gcsUri}`);
         try {
             await fileUpload.save(buffer, { contentType: mimeType });
         } catch (err) {
             try { await bucket.create({ location: 'us' }); await fileUpload.save(buffer, { contentType: mimeType }); } catch (e) { }
         }
 
-        let fullText = '';
-        let utterances: any[] = [];
-
         const projectId = 'premium-pulsar-483503-k0';
         const location = 'us';
 
+        // 2. Configure Recognizer
         let recognizerName = '';
         let useLLMDiarization = false;
 
-        // --- PIPELINE SELECTION ---
         if (isMalayalam) {
-            // Malayalam: Chirp 3 + LLM Diarization
             useLLMDiarization = true;
             recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-malayalam-chirp-3-batch', {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true } },
@@ -141,139 +141,207 @@ export async function POST(request: NextRequest) {
             });
         }
         else if (isArabic) {
-            // Arabic: Chirp 3 + LLM Diarization (Per User Request)
             useLLMDiarization = true;
-            // Use dynamic ID based on language to avoid stale config
             const recId = `medscribe-arabic-${language.replace('-', '').toLowerCase()}-chirp-3-batch`;
             recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, recId, {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true } },
                 model: 'chirp_3',
-                languageCodes: [language], // Use the detected/normalized language
+                languageCodes: [language],
             });
         }
         else if (isHindi) {
-            // Hindi: Chirp 3 + Native Diarization (Per User Request)
             useLLMDiarization = false;
             recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-hindi-chirp-3-diarization', {
-                defaultRecognitionConfig: {
-                    features: {
-                        enableWordTimeOffsets: true,
-                        diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 }
-                    }
-                },
+                defaultRecognitionConfig: { features: { enableWordTimeOffsets: true, diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 } } },
                 model: 'chirp_3',
                 languageCodes: ['hi-IN'],
             });
         }
         else {
-            // English/Others: Chirp 3 + Native Diarization
             useLLMDiarization = false;
             recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-english-chirp-3-diarization', {
-                defaultRecognitionConfig: {
-                    features: {
-                        enableWordTimeOffsets: true,
-                        diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 }
-                    }
-                },
+                defaultRecognitionConfig: { features: { enableWordTimeOffsets: true, diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 } } },
                 model: 'chirp_3',
                 languageCodes: ['en-US'],
             });
         }
 
-        console.log(`Starting V2 BatchRecognize using ${recognizerName}... LLM Diarization: ${useLLMDiarization}`);
+        // 3. Start LRO (Do NOT await completion)
+        console.log(`[Async] Starting Batch Operation... Output: ${outputUri}`);
         const [operation] = await googleClientV2.batchRecognize({
             recognizer: recognizerName,
             config: { autoDecodingConfig: {} },
             files: [{ uri: gcsUri }],
-            recognitionOutputConfig: { inlineResponseConfig: {} }
+            // CRITICAL: Write output to GCS so we can fetch it easily in GET
+            recognitionOutputConfig: {
+                gcsOutputConfig: { uri: outputUri }
+            }
         });
 
-        const [response] = await operation.promise();
-        const fileResult = response.results ? response.results[gcsUri] : null;
+        // Return Job ID immediately
+        return NextResponse.json({
+            jobId: operation.name, // "projects/.../locations/.../operations/..."
+            gcsUri,
+            outputUri, // Output URI (Wait for .json)
+            language,
+            useLLMDiarization,
+            status: 'processing'
+        });
 
-        if (fileResult && fileResult.transcript) {
-            // Extract Full Text
-            fullText = fileResult.transcript.results
-                ?.map((r: any) => r.alternatives?.[0]?.transcript)
-                .join(' ') || '';
+    } catch (error: any) {
+        console.error('[Async] POST Error:', error);
+        return NextResponse.json({ error: error.message || 'Failed to start transcription' }, { status: 500 });
+    }
+}
 
-            const results = fileResult.transcript.results || [];
-            const rawWords = results.flatMap((r: any) => r.alternatives?.[0]?.words || []);
+// --- 2. GET: Poll Status & Retrieve Result ---
+export async function GET(request: NextRequest) {
+    const { searchParams } = new URL(request.url);
+    const operationName = searchParams.get('jobId');
+    const outputUri = searchParams.get('outputUri'); // GCS URI for JSON result
+    const useLLMDiarization = searchParams.get('useLLM') === 'true';
 
-            if (useLLMDiarization) {
-                // --- LLM Diarization Logic (Malayalam & Arabic) ---
-                const languageName = isArabic ? 'Arabic' : (isMalayalam ? 'Malayalam' : 'English');
-                console.log(`Running LLM Diarization for ${languageName}...`);
+    if (!operationName || !outputUri) {
+        return NextResponse.json({ error: 'Missing jobId or outputUri' }, { status: 400 });
+    }
 
-                const normalizedWords = rawWords.map((w: any) => ({
-                    word: w.word,
-                    startTime: w.startOffset || w.startTime,
-                    endTime: w.endOffset || w.endTime
-                })).sort((a: any, b: any) => getMs(a.startTime) - getMs(b.startTime));
+    try {
+        console.log(`[Async] Polling Job: ${operationName}`);
 
-                if (normalizedWords.length > 0) {
-                    utterances = await diarizeWithGroq(normalizedWords, languageName);
-                } else {
-                    utterances = [{ speaker: 'Speaker A', text: fullText, start: 0, end: 0 }];
-                }
+        // 1. Check Operation Status
+        const [operation] = await googleClientV2.operationsClient.getOperation({ name: operationName } as any);
+
+        if (!operation.done) {
+            return NextResponse.json({ status: 'processing' });
+        }
+
+        if (operation.error) {
+            throw new Error(operation.error.message);
+        }
+
+        console.log('[Async] Job Done. Fetching result from GCS:', outputUri);
+
+        // 2. Fetch Result from GCS (JSON)
+        // outputUri is like gs://bucket/filename.wav.json
+        // Google STT adds a suffix (creates a folder), so we treat this as a prefix.
+        const match = outputUri.match(/gs:\/\/([^\/]+)\/(.+)/);
+        if (!match) throw new Error('Invalid Output URI format');
+
+        const outputBucketName = match[1];
+        const outputPrefix = match[2];
+        const bucket = storage.bucket(outputBucketName);
+
+        // List files with the prefix
+        const [files] = await bucket.getFiles({ prefix: outputPrefix });
+
+        if (files.length === 0) {
+            console.error(`[Async] No output files found with prefix: ${outputPrefix}`);
+            throw new Error(`Output file not found in GCS`);
+        }
+
+        // We expect one result file for one input file, usually deeply nested
+        const file = files[0];
+        console.log(`[Async] Found output file: ${file.name}`);
+
+        const [content] = await file.download();
+        const jsonResponse = JSON.parse(content.toString());
+
+        console.log('[Async] GCS JSON Response (truncated):', JSON.stringify(jsonResponse).substring(0, 500));
+
+        // Handle both possible structures (Direct results vs BatchFileResult)
+        let transcriptResults = jsonResponse.results || [];
+
+        // If the first item has a nested 'transcript' object (BatchRecognizeFileResult structure), unwrap it.
+        // But logs showed direct { results: [ { alternatives: ... } ] }
+        if (transcriptResults.length > 0 && transcriptResults[0].transcript?.results) {
+            transcriptResults = transcriptResults[0].transcript.results;
+        }
+
+        if (transcriptResults.length === 0) {
+            console.warn('[Async] No results found in JSON:', JSON.stringify(jsonResponse).substring(0, 200));
+        }
+
+        // Extract Full Text
+        const fullText = transcriptResults
+            .map((r: any) => r.alternatives?.[0]?.transcript)
+            .join(' ') || '';
+
+        const rawWords = transcriptResults.flatMap((r: any) => r.alternatives?.[0]?.words || []);
+        let utterances: any[] = [];
+
+        // 3. Post-Processing (Diarization)
+        if (useLLMDiarization) {
+            // --- LLM Diarization Logic ---
+            console.log(`[Async] Running LLM Diarization...`);
+
+            const normalizedWords = rawWords.map((w: any) => ({
+                word: w.word,
+                startTime: w.startOffset || w.startTime,
+                endTime: w.endOffset || w.endTime
+            })).sort((a: any, b: any) => getMs(a.startTime) - getMs(b.startTime));
+
+            if (normalizedWords.length > 0) {
+                const langCode = searchParams.get('language') || 'en-US';
+                const langName = langCode.includes('ar') ? 'Arabic' : (langCode.includes('ml') ? 'Malayalam' : 'English');
+
+                utterances = await diarizeWithGroq(normalizedWords, langName);
             } else {
-                // --- Native V2 Diarization Parsing (English & Hindi) ---
-                console.log('Parsing Native V2 Diarization results...');
+                utterances = [{ speaker: 'Speaker A', text: fullText, start: 0, end: 0 }];
+            }
+        } else {
+            // --- Native Diarization Parsing ---
+            console.log('[Async] Parsing Native Diarization...');
 
-                rawWords.sort((a: any, b: any) => getMs(a.startOffset || a.startTime) - getMs(b.startOffset || b.startTime));
+            rawWords.sort((a: any, b: any) => getMs(a.startOffset || a.startTime) - getMs(b.startOffset || b.startTime));
 
-                let currentSpeaker = '';
-                let currentText: string[] = [];
-                let startTime = 0;
-                let endTime = 0;
+            let currentSpeaker = '';
+            let currentText: string[] = [];
+            let startTime = 0;
+            let endTime = 0;
 
-                rawWords.forEach((w: any, index: number) => {
-                    let label = w.speakerLabel || '1';
-                    if (/^\d+$/.test(label)) {
-                        label = `Speaker ${String.fromCharCode(64 + parseInt(label))}`; // 1->A
-                    }
-                    // Manual Mapping per User Request: Speaker A -> DOCTOR
-                    if (label === 'Speaker A') {
-                        label = 'DOCTOR';
-                    }
+            rawWords.forEach((w: any, index: number) => {
+                let label = w.speakerLabel || '1';
+                if (/^\d+$/.test(label)) label = `Speaker ${String.fromCharCode(64 + parseInt(label))}`;
+                if (label === 'Speaker A') label = 'DOCTOR';
 
-                    const start = getMs(w.startOffset || w.startTime);
-                    const end = getMs(w.endOffset || w.endTime);
+                const start = getMs(w.startOffset || w.startTime);
+                const end = getMs(w.endOffset || w.endTime);
 
-                    if (index === 0) {
-                        currentSpeaker = label;
-                        startTime = start;
-                    }
-
-                    if (label !== currentSpeaker) {
-                        utterances.push({ speaker: currentSpeaker, text: currentText.join(' '), start: startTime, end: endTime });
-                        currentSpeaker = label;
-                        currentText = [w.word];
-                        startTime = start;
-                    } else {
-                        currentText.push(w.word);
-                    }
-                    endTime = end;
-
-                    if (index === rawWords.length - 1) {
-                        utterances.push({ speaker: currentSpeaker, text: currentText.join(' '), start: startTime, end: endTime });
-                    }
-                });
-
-                if (utterances.length === 0 && fullText) {
-                    utterances = [{ speaker: 'Speaker A', text: fullText, start: 0, end: 0 }];
+                if (index === 0) {
+                    currentSpeaker = label;
+                    startTime = start;
                 }
+
+                if (label !== currentSpeaker) {
+                    utterances.push({ speaker: currentSpeaker, text: currentText.join(' '), start: startTime, end: endTime });
+                    currentSpeaker = label;
+                    currentText = [w.word];
+                    startTime = start;
+                } else {
+                    currentText.push(w.word);
+                }
+                endTime = end;
+
+                if (index === rawWords.length - 1) {
+                    utterances.push({ speaker: currentSpeaker, text: currentText.join(' '), start: startTime, end: endTime });
+                }
+            });
+
+            if (utterances.length === 0 && fullText) {
+                utterances = [{ speaker: 'Speaker A', text: fullText, start: 0, end: 0 }];
             }
         }
 
-        // Clean up GCS
-        try { await fileUpload.delete(); } catch (e) { }
+        // Cleanup: Optionally delete the result file? 
+        try { await file.delete(); } catch (e) { }
+        // Also delete input file? (Passed as gcsUri param)
+        // We can reconstruct input file obj if needed, but let's leave it or implement separate cleanup job.
 
-        return NextResponse.json({ text: fullText, utterances });
+        return NextResponse.json({ status: 'completed', text: fullText, utterances });
 
     } catch (error: any) {
-        console.error('Transcription error:', error);
-        return NextResponse.json({ error: error.message || 'Failed to transcribe' }, { status: 500 });
+        console.error('[Async] GET Error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
 

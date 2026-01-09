@@ -55,7 +55,7 @@ const getVertexClient = () => {
 
 const vertexAI = getVertexClient();
 const model = vertexAI.getGenerativeModel({
-    model: 'gemini-2.5-flash', // Switched to Flash for speed/cost per user request
+    model: 'gemini-2.5-pro', // Updated to 2.5 Pro based on user's available models
     safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
         { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },

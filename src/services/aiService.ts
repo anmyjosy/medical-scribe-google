@@ -75,26 +75,79 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 
 export const processConsultation = async (audioBlob: Blob, language: string = 'ml-IN'): Promise<{ soapNote: any, utterances: any[], fullText: string }> => {
     try {
-        // 1. Transcribe
+        // 1. Start Transcription Job (Async)
         const formData = new FormData();
         formData.append('audio', audioBlob);
         formData.append('language', language);
 
-        const transResponse = await fetch('/api/transcribe', {
+        console.log('[Client] Starting Transcription Job...');
+        const startResponse = await fetch('/api/transcribe', {
             method: 'POST',
             body: formData
         });
 
-        if (!transResponse.ok) {
-            const err = await transResponse.json();
-            throw new Error(err.error || 'Transcription failed');
+        if (!startResponse.ok) {
+            const err = await startResponse.json();
+            throw new Error(err.error || 'Transcription start failed');
         }
 
-        const { text, utterances } = await transResponse.json();
+        const startData = await startResponse.json();
+
+        let text = '';
+        let utterances: any[] = [];
+
+        // 2. Poll for Completion using Job ID
+        if (startData.status === 'processing' && startData.jobId) {
+            console.log(`[Client] Job Started: ${startData.jobId}. Polling...`);
+
+            const jobId = startData.jobId;
+            const outputUri = startData.outputUri; // Needed for fetching GCS result
+            const useLLM = startData.useLLMDiarization; // Needed to re-trigger correct logic on server if needed (though server has it in params)
+
+            let attempts = 0;
+            const maxAttempts = 60; // 2 minutes (2s * 60)
+
+            while (attempts < maxAttempts) {
+                // Wait 2s
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                const pollUrl = `/api/transcribe?jobId=${encodeURIComponent(jobId)}&outputUri=${encodeURIComponent(outputUri)}&language=${encodeURIComponent(language)}&useLLM=${useLLM}`;
+                const pollResponse = await fetch(pollUrl);
+
+                if (!pollResponse.ok) {
+                    // Try to parse specific error or just throw
+                    const errText = await pollResponse.text();
+                    throw new Error(`Polling failed: ${pollResponse.status} ${errText}`);
+                }
+
+                const pollData = await pollResponse.json();
+
+                if (pollData.status === 'completed') {
+                    console.log('[Client] Job Completed!');
+                    text = pollData.text;
+                    utterances = pollData.utterances;
+                    break;
+                } else if (pollData.error) {
+                    throw new Error(pollData.error);
+                }
+
+                attempts++;
+                if (attempts % 5 === 0) console.log(`[Client] Still processing... (${attempts * 2}s)`);
+            }
+
+            if (!text) throw new Error('Transcription timed out or failed to return text.');
+
+        } else {
+            // Fallback if somehow it returned immediately (e.g. cached or short path if we kept it)
+            // But our current POST always returns processing.
+            text = startData.text;
+            utterances = startData.utterances;
+        }
 
         if (!text) throw new Error('No transcript generated');
 
-        // 2. Generate SOAP
+        // 3. Generate SOAP
+        console.log('[Client] Generating SOAP Note...');
         const soapResponse = await fetch('/api/generate-soap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
