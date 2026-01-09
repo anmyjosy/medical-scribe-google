@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[functions]
+  node_bundler = "esbuild"
+  # Valid values are up to 26 for Pro/Business. Default is 10.
+  # We set this to help, but deep tasks might still timeout on free tier.
+  external_node_modules = ["@google-cloud/speech", "@google-cloud/vertexai"] 
