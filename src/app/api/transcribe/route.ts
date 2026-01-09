@@ -23,7 +23,21 @@ const getGoogleClientConfig = () => {
     // 2. Fallback to Local File (Development)
     const localPath = path.join(process.cwd(), 'google-key.json');
     console.log('[Auth] Falling back to local file:', localPath);
-    return { keyFilename: localPath };
+
+    // Check if file exists to prevent crash
+    try {
+        const fs = require('fs');
+        if (fs.existsSync(localPath)) {
+            return { keyFilename: localPath };
+        } else {
+            console.error('[Auth] Local google-key.json not found and no Env Var set.');
+            // Do not return a broken config that causes a hard crash later
+            return { credentials: {} }; // Return empty to fail gracefully with "no credentials" error from Google SDK instead of file error
+        }
+    } catch (e) {
+        console.error('[Auth] failed checking local file:', e);
+        return { credentials: {} };
+    }
 };
 
 const config = getGoogleClientConfig();
