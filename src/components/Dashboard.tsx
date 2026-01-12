@@ -27,6 +27,10 @@ interface DashboardProps {
   onFileDelete?: (patientId: string, fileName: string) => Promise<void>;
   defaultPatientId?: string | null;
   onClearDefaultPatient?: () => void;
+  // Hoisted State Props
+  isModalOpen: boolean;
+  setIsModalOpen: (isOpen: boolean) => void;
+  onPatientSelect?: (isSelected: boolean) => void;
 }
 
 const TabType = {
@@ -58,15 +62,16 @@ const InsightCard = ({ title, items, color }: any) => {
   );
 }
 
-const ActionBtn = ({ icon, label, color = "text-slate-400", onClick }: any) => (
-  <button onClick={onClick} className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl flex items-center gap-2 sm:gap-2.5 hover:bg-slate-50 transition-all ${color} group`}>
+const ActionBtn = ({ icon, label, color = "text-slate-400", onClick, id }: any) => (
+  <button id={id} onClick={onClick} className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl flex items-center gap-2 sm:gap-2.5 hover:bg-slate-50 transition-all ${color} group`}>
     <span className="opacity-70 group-hover:opacity-100 transition-opacity">{icon}</span>
     <span className="text-[10px] font-bold font-sans tracking-widest uppercase">{label}</span>
   </button>
 );
 
-const Tab = ({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) => (
+const Tab = ({ label, active, onClick, id }: { label: string, active: boolean, onClick: () => void, id?: string }) => (
   <button
+    id={id}
     onClick={onClick}
     className={`py-6 relative text-[10px] sm:text-xs font-bold font-sans tracking-[0.1em] md:tracking-[0.2em] transition-all shrink-0 whitespace-nowrap ${active ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
   >
@@ -217,6 +222,7 @@ const NewPatientModal: React.FC<NewPatientModalProps> = ({ initialName, onClose,
           <div className="pt-2">
             <button
               type="submit"
+              id="modal-start-btn"
               className="w-full py-3 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-[0.3em] shadow-xl shadow-black/10 hover:bg-slate-800 transition-all"
             >
               Start Recording
@@ -349,17 +355,24 @@ const EditPatientModal: React.FC<EditPatientModalProps> = ({ patient, onClose, o
 };
 
 // --- Main Component ---
-const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStartScribe, onDeleteConsultation, onDeletePatient, onUpdatePatient, onUpdateConsultation, onFileUpload, onFileDelete, defaultPatientId, onClearDefaultPatient }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStartScribe, onDeleteConsultation, onDeletePatient, onUpdatePatient, onUpdateConsultation, onFileUpload, onFileDelete, defaultPatientId, onClearDefaultPatient, isModalOpen, setIsModalOpen, onPatientSelect }) => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [selectedConsultation, setSelectedConsultation] = useState<MedicalNote | null>(null);
   const [activeTab, setActiveTab] = useState(TabType.SUMMARY);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Uses prop if provided, otherwise local state (though likely just prop in this refactor)
+  // To avoid breaking changes without messy logic, we'll assume prop is passed or handle gracefully?
+  // Actually, let's just use the prop. But we need to update the interface first.
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [translationLanguage, setTranslationLanguage] = useState<'Original' | 'Hindi' | 'Arabic' | 'Malayalam' | 'English'>('Original');
   const [isTranslateOpen, setIsTranslateOpen] = useState(false);
   const [translatedData, setTranslatedData] = useState<any>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRAGMode, setIsRAGMode] = useState(false);
+
+  // Notify parent of selection
+  useEffect(() => {
+    onPatientSelect?.(!!selectedPatient);
+  }, [selectedPatient, onPatientSelect]);
 
   // Sync selectedPatient with latest data from patients prop
   useEffect(() => {
@@ -805,6 +818,7 @@ ${fileContext}
               Exit <LogOut size={14} className="ml-2" />
             </button>
             <button
+              id="add-patient-btn"
               onClick={() => setIsModalOpen(true)}
               className="hidden md:flex bg-black text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-black/10"
             >
@@ -905,6 +919,7 @@ ${fileContext}
 
         {/* Mobile FAB for New Session on Registry */}
         <button
+          id="add-patient-btn-mobile"
           onClick={() => setIsModalOpen(true)}
           className="md:hidden fixed bottom-6 right-6 w-14 h-14 bg-black text-white rounded-full flex items-center justify-center shadow-2xl shadow-black/30 z-50 active:scale-90 transition-transform"
         >
@@ -1116,6 +1131,7 @@ ${fileContext}
                         label={<><span className="sm:hidden">AI</span><span className="hidden sm:inline">ASK AI</span></>}
                         color={isAIChatOpen ? "text-black bg-black/5" : "text-black"}
                         onClick={() => setIsAIChatOpen(true)}
+                        id="ask-ai-trigger-btn"
                       />
                       <button
                         onClick={handleDelete}
@@ -1134,8 +1150,8 @@ ${fileContext}
                     <Tab label="SUMMARY" active={activeTab === TabType.SUMMARY} onClick={() => setActiveTab(TabType.SUMMARY)} />
                     <Tab label="TRANSCRIPT" active={activeTab === TabType.TRANSCRIPT} onClick={() => setActiveTab(TabType.TRANSCRIPT)} />
                     <Tab label="INSIGHTS" active={activeTab === TabType.INSIGHTS} onClick={() => setActiveTab(TabType.INSIGHTS)} />
-                    <Tab label="PRESCRIPTION" active={activeTab === TabType.PRESCRIPTION} onClick={() => setActiveTab(TabType.PRESCRIPTION)} />
-                    <Tab label="UPLOADS" active={activeTab === TabType.UPLOADS} onClick={() => setActiveTab(TabType.UPLOADS)} />
+                    <Tab label="PRESCRIPTION" active={activeTab === TabType.PRESCRIPTION} onClick={() => setActiveTab(TabType.PRESCRIPTION)} id="tab-prescription" />
+                    <Tab label="UPLOADS" active={activeTab === TabType.UPLOADS} onClick={() => setActiveTab(TabType.UPLOADS)} id="tab-uploads" />
                   </div>
 
                   {/* Mobile FAB for New Session */}

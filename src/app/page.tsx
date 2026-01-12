@@ -9,6 +9,7 @@ import Dashboard from '@/components/Dashboard';
 import ScribeSession from '@/components/ScribeSession';
 import { supabase } from '@/lib/supabaseClient';
 import { uploadPatientFile, deletePatientFile, getPatientFiles } from '@/services/fileUploadService';
+import TourGuide from '@/components/TourGuide';
 
 export default function Home() {
     const [currentView, setCurrentView] = useState<View>(View.LANDING);
@@ -39,8 +40,12 @@ export default function Home() {
         isAuthenticated: false
     });
     const [patients, setPatients] = useState<Patient[]>([]);
+
     const [preselectedPatientData, setPreselectedPatientData] = useState<PrefilledPatientData | null>(null);
     const [defaultPatientId, setDefaultPatientId] = useState<string | null>(null);
+    const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
+    const [isPatientSelected, setIsPatientSelected] = useState(false);
+    const [isDataLoaded, setIsDataLoaded] = useState(false);
 
     // Load Patients from Supabase
     const fetchPatients = async () => {
@@ -49,38 +54,44 @@ export default function Home() {
 
         console.log('Fetching patients for user:', user.id);
 
-        // Fetch patients and their consultations
-        const { data, error } = await supabase
-            .from('patients')
-            .select('*, consultations(*)')
-            .eq('user_id', user.id)
-            .order('last_seen', { ascending: false });
+        try {
+            // Fetch patients and their consultations
+            const { data, error } = await supabase
+                .from('patients')
+                .select('*, consultations(*)')
+                .eq('user_id', user.id)
+                .order('last_seen', { ascending: false });
 
-        if (error) {
-            console.error('Error fetching patients:', error);
-        } else {
-            const formattedPatients = await Promise.all((data as any[]).map(async p => {
-                // Fetch files for each patient
-                const files = await getPatientFiles(p.id);
+            if (error) {
+                console.error('Error fetching patients:', error);
+            } else {
+                const formattedPatients = await Promise.all((data as any[]).map(async p => {
+                    // Fetch files for each patient
+                    const files = await getPatientFiles(p.id);
 
-                return {
-                    ...p,
-                    lastSeen: p.last_seen,
-                    bloodGroup: p.blood_group,
-                    language: p.language,
-                    files: files,
-                    consultations: (p.consultations || []).map((c: any) => ({
-                        ...c,
-                        keyInsights: c.key_insights,
-                        rawTranscript: c.raw_transcript,
-                        audioUrl: c.audio_url,
-                        prescription: typeof c.prescription === 'string' ? JSON.parse(c.prescription) : c.prescription,
-                    })).sort((a: MedicalNote, b: MedicalNote) => {
-                        return new Date(b.date).getTime() - new Date(a.date).getTime();
-                    })
-                };
-            }));
-            setPatients(formattedPatients);
+                    return {
+                        ...p,
+                        lastSeen: p.last_seen,
+                        bloodGroup: p.blood_group,
+                        language: p.language,
+                        files: files,
+                        consultations: (p.consultations || []).map((c: any) => ({
+                            ...c,
+                            keyInsights: c.key_insights,
+                            rawTranscript: c.raw_transcript,
+                            audioUrl: c.audio_url,
+                            prescription: typeof c.prescription === 'string' ? JSON.parse(c.prescription) : c.prescription,
+                        })).sort((a: MedicalNote, b: MedicalNote) => {
+                            return new Date(b.date).getTime() - new Date(a.date).getTime();
+                        })
+                    };
+                }));
+                setPatients(formattedPatients);
+            }
+        } catch (error) {
+            console.error("Unexpected error loading patients:", error);
+        } finally {
+            setIsDataLoaded(true);
         }
     };
 
@@ -120,7 +131,8 @@ export default function Home() {
                 setAuthState({ user, isAuthenticated: true });
 
                 // Use ref here to avoid stale closure
-                if (viewRef.current === View.AUTH || viewRef.current === View.LANDING || viewRef.current === View.ONBOARDING) {
+                // FIXED: Removed View.AUTH from here so manual login can handle the transition/fetching explicitly
+                if (viewRef.current === View.LANDING || viewRef.current === View.ONBOARDING) {
                     if (!user.specialty || !user.country || user.name === 'Clinician') {
                         setCurrentView(View.ONBOARDING);
                     } else {
@@ -411,7 +423,18 @@ export default function Home() {
             )}
 
             {currentView === View.AUTH && (
-                <Auth onAuthSuccess={() => { }} onBack={() => setCurrentView(View.LANDING)} />
+                <Auth
+                    onAuthSuccess={async (user) => {
+                        // Wait for patients to be fetched BEFORE switching view
+                        await fetchPatients();
+                        if (!user.specialty || !user.country || user.name === 'Clinician') {
+                            setCurrentView(View.ONBOARDING);
+                        } else {
+                            setCurrentView(View.DASHBOARD);
+                        }
+                    }}
+                    onBack={() => setCurrentView(View.LANDING)}
+                />
             )}
             {
                 currentView === View.ONBOARDING && (
@@ -445,6 +468,9 @@ export default function Home() {
                         onFileDelete={handleFileDelete}
                         defaultPatientId={defaultPatientId}
                         onClearDefaultPatient={() => setDefaultPatientId(null)}
+                        isModalOpen={isDashboardModalOpen}
+                        setIsModalOpen={setIsDashboardModalOpen}
+                        onPatientSelect={setIsPatientSelected}
                     />
                 )
             }
@@ -463,6 +489,15 @@ export default function Home() {
                     />
                 )
             }
+
+
+            <TourGuide
+                currentView={currentView}
+                isModalOpen={currentView === View.DASHBOARD && isDashboardModalOpen}
+                isPatientSelected={isPatientSelected}
+                hasPatients={patients.length > 0}
+                dataLoaded={isDataLoaded}
+            />
         </div>
     );
 }

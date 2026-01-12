@@ -331,6 +331,7 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
               <button
+                id="start-recording-btn"
                 onClick={startRecording}
                 className="flex flex-col items-center justify-center p-8 bg-black text-white rounded-[32px] hover:scale-105 transition-all shadow-2xl shadow-black/20 group"
               >
@@ -340,7 +341,9 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
                 <span className="text-[10px] font-black uppercase tracking-[0.4em]">Start Recording</span>
               </button>
 
-              <label className="flex flex-col items-center justify-center p-8 bg-white border-2 border-dashed border-black/5 rounded-[32px] hover:border-blue-600 hover:bg-blue-50/30 transition-all cursor-pointer group">
+
+
+              <label id="upload-audio-btn" className="flex flex-col items-center justify-center p-8 bg-white border-2 border-dashed border-black/5 rounded-[32px] hover:border-blue-600 hover:bg-blue-50/30 transition-all cursor-pointer group">
                 <div className="w-12 h-12 rounded-full bg-blue-600/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 </div>
@@ -352,7 +355,7 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
 
           </div>
         </div>
-      </div>
+      </div >
     );
   }
 
@@ -371,6 +374,7 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
           <div className="relative">
             <div className={`absolute -inset-8 bg-red-600/5 rounded-full ${isMuted ? '' : 'soft-pulse'}`}></div>
             <button
+              id="stop-recording-btn"
               onClick={stopRecording}
               className="w-32 h-32 rounded-full flex flex-col items-center justify-center transition-all bg-white border border-black/5 shadow-2xl hover:scale-105 z-10"
             >
@@ -441,17 +445,17 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
             <button
               onClick={() => {
                 if (capturedAudio) {
-                  // Pass true for autoSave to skip result screen as requested
                   handleProcessAudio(capturedAudio, true);
                 }
               }}
+              id="proceed-btn"
               className="px-6 py-4 bg-black text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-black/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               Proceed <Loader2 size={12} className={isSaving ? "animate-spin" : "hidden"} />
             </button>
           </div>
         </div>
-      </div>
+      </div >
     );
   }
 

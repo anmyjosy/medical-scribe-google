@@ -2,9 +2,10 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { User } from '@/types';
+import { Eye, EyeOff } from 'lucide-react';
 
 interface AuthProps {
-  onAuthSuccess: (user: User) => void;
+  onAuthSuccess: (user: User) => Promise<void> | void;
   onBack: () => void;
 }
 
@@ -17,6 +18,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,11 +33,19 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess, onBack }) => {
         });
 
         if (error) throw error;
-        // Auth state change will be handled in App.tsx typically, 
-        // but for immediate feedback or if we want to pass data manually:
-        // We'll let the onAuthStateChange in App.tsx handle the redirect and state update.
-        // However, we might want to call onAuthSuccess to ensure compatibility if App.tsx isn't fully reactive yet.
-        // Let's rely on the App.tsx listener for state, we just need to ensure no error here.
+
+        // If login is successful, we construct the user object and call the success handler.
+        // We await this handler so the loading state persists until the parent is ready.
+        if (data.user) {
+          const user: User = {
+            id: data.user.id,
+            email: data.user.email || '',
+            name: data.user.user_metadata.name || data.user.email?.split('@')[0] || 'Clinician',
+            specialty: data.user.user_metadata.specialty,
+            country: data.user.user_metadata.country
+          };
+          await onAuthSuccess(user);
+        }
       } else {
         const { data, error } = await supabase.auth.signUp({
           email,
@@ -129,13 +139,25 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess, onBack }) => {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 relative">
             <label className="text-[8px] font-black uppercase tracking-widest text-black/30">Password</label>
-            <input
-              type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-              className="w-full text-sm font-bold bg-transparent border-b-2 border-black/5 focus:outline-none focus:border-blue-600 transition-colors py-2"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full text-sm font-bold bg-transparent border-b-2 border-black/5 focus:outline-none focus:border-blue-600 transition-colors py-2 pr-10"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 text-black/30 hover:text-black transition-colors p-1"
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -147,11 +169,11 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess, onBack }) => {
           </button>
         </form>
 
-        <div className="text-center">
+        <div className="text-center pt-4">
           <button
             type="button"
             onClick={() => { setIsLogin(!isLogin); setError(null); }}
-            className="text-[8px] font-black uppercase tracking-widest text-black/20 hover:text-black transition-all underline underline-offset-4"
+            className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-black hover:text-black/60 transition-all underline underline-offset-4"
           >
             {isLogin ? 'Create an account' : 'Already have an account? Sign In'}
           </button>
