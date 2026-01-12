@@ -403,7 +403,11 @@ export default function Home() {
     return (
         <div className="min-h-screen flex flex-col font-sans" >
             {currentView === View.LANDING && (
-                <Landing onGetStarted={() => setCurrentView(View.AUTH)} />
+                <Landing onGetStarted={() => {
+                    // Clear the URL hash (e.g., #about, #features) so the user enters with a clean URL
+                    window.history.replaceState(null, '', window.location.pathname);
+                    setCurrentView(View.AUTH);
+                }} />
             )}
 
             {currentView === View.AUTH && (
