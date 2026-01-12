@@ -71,7 +71,7 @@ const TourGuide: React.FC<TourGuideProps> = ({ currentView, isModalOpen, isPatie
                     },
                     {
                         target: '#tab-uploads',
-                        content: 'Upload past medical records here for AI analysis.',
+                        content: 'Upload digital forms only (PDF/DOCX) for AI analysis.',
                         placement: 'bottom', // Force bottom to prevent horizontal overflow
                         floaterProps: {
                             disableAnimation: true,
