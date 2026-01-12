@@ -522,8 +522,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStart
           // Translate medications in parallel
           const medicationPromises = (prez.medications || []).map(async (med: any) => ({
             ...med,
-            instructions: await translateText(med.instructions, translationLanguage),
-            frequency: await translateText(med.frequency, translationLanguage),
+            instructions: med.instructions ? await translateText(med.instructions, translationLanguage) : '',
+            frequency: med.frequency ? await translateText(med.frequency, translationLanguage) : '',
+            dosage: med.dosage ? await translateText(med.dosage, translationLanguage) : '',
+            duration: med.duration ? await translateText(med.duration, translationLanguage) : ''
           }));
 
           const [notesTr, medsTr] = await Promise.all([notesPromise, Promise.all(medicationPromises)]);
@@ -564,6 +566,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, patients, onLogout, onStart
         // If we have a patient selected and user presses back, clear selection
         setSelectedPatient(null);
         setSelectedConsultation(null);
+        setTranslationLanguage('Original'); // Reset translation when going back to registry
       }
     };
 

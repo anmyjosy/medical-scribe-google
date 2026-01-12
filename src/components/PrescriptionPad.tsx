@@ -78,8 +78,7 @@ export const PrescriptionPad: React.FC<PrescriptionPadProps> = ({
                 </button>
             </div>
 
-            {/* Prescription Paper (A4 Aspect Ratio approx) */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar print:p-0 print:overflow-visible">
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar print:p-0 print:overflow-visible print-content-wrapper">
                 <div className="w-full md:max-w-[210mm] min-h-[500px] md:min-h-[297mm] mx-auto bg-white shadow-2xl print:shadow-none print:w-full relative flex flex-col">
 
                     {/* Header */}
@@ -205,7 +204,7 @@ export const PrescriptionPad: React.FC<PrescriptionPadProps> = ({
                     </div>
 
                     {/* Footer */}
-                    <div className="bg-sky-50 p-8 border-t-4 border-sky-100 print:bg-sky-50 print-color-exact mt-auto">
+                    <div className="bg-sky-50 p-8 border-t-4 border-sky-100 print:bg-sky-50 print-color-exact mt-auto print-footer">
                         <div className="flex justify-between items-end">
                             <div className="text-[10px] text-sky-800 font-medium space-y-1">
                                 <p className="flex items-center gap-2">HOSPITAL NAME</p>
@@ -227,12 +226,36 @@ export const PrescriptionPad: React.FC<PrescriptionPadProps> = ({
                         @page { margin: 0; size: auto; }
                         body * { visibility: hidden; }
                         .print\\:overflow-visible, .print\\:overflow-visible * { visibility: visible; }
-                        .print\\:overflow-visible { position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: white; }
+                        .print\\:overflow-visible { 
+                            position: absolute; 
+                            left: 0; 
+                            top: 0; 
+                            width: 100%; 
+                            min-height: 100vh;
+                            margin: 0; 
+                            padding: 0; 
+                            background: white; 
+                            display: flex;
+                            flex-direction: column;
+                        }
                         .print\\:hidden { display: none !important; }
                         .print-color-exact { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                         .printing-no-border { border-bottom: none !important; }
                         /* Hide placeholders when printing */
                         input::placeholder, textarea::placeholder { color: transparent; }
+                        
+                        /* Force footer to bottom */
+                        .print-footer {
+                            position: fixed;
+                            bottom: 0;
+                            left: 0;
+                            width: 100%;
+                            z-index: 10;
+                        }
+                        /* Ensure content doesn't overlap footer */
+                        .print-content-wrapper {
+                            padding-bottom: 250px; 
+                        }
                     }
                 `}
             </style>

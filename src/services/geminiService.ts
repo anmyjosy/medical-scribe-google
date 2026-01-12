@@ -130,6 +130,7 @@ Important:
 - 'notes' must be a SINGLE string containing diagnosis or advice. Do not return an array or object for notes.
 - If a field is unknown, use an empty string "", do NOT use null.
 - Ensure the JSON is valid.
+- **IMPORTANT**: The all output content (medication names, instructions, notes) MUST BE IN ENGLISH ONLY, regardless of the input Transcript language. Translate if necessary.
 
 TRANSCRIPT:
 ${text}

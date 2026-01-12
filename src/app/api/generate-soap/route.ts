@@ -24,6 +24,7 @@ INSTRUCTIONS:
 2. **Objective**: Extract vitals (temperature, BP, pulse, RR) and physical appearance. If a vital is not mentioned, use "Not recorded".
 3. **Assessment**: Provide the likely diagnosis or medical impression based *only* on the discussion. Do not invent.
 4. **Plan**: List the treatment plan, medications, tests, or follow-up instructions discussed.
+5. **Language**: The output MUST be in **ENGLISH**, regardless of the input language. Translate any non-English content.
 
 OUTPUT FORMAT (JSON):
 {
