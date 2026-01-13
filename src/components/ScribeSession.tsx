@@ -106,52 +106,34 @@ const ScribeSession: React.FC<ScribeSessionProps> = ({ prefilledData, onCancel, 
   };
 
   const handleProcessAudio = async (blob: Blob, autoSave = false) => {
-    setSessionState('PROCESSING');
-    try {
-      const result = await processConsultation(blob, patientLanguage);
-      setGeneratedNote(result.soapNote);
-      setUtterances(result.utterances);
-      setFullTranscript(result.fullText);
+    // IMMEDIATE HANDOFF to Background Processing
+    setSessionState('PROCESSING'); // Show brief loading if needed, or skip directly?
+    // Actually, we want to skip the "Cognitive Synthesis" screen or make it very brief.
+    // The previous attempt wanted to clear it.
+    // Let's just call onSave.
 
-      let finalInsights: string[] = [];
-      try {
-        finalInsights = await generateKeyInsights(result.fullText);
-        setKeyInsights(finalInsights);
-      } catch (iErr: any) {
-        console.error('Insights generation error:', iErr);
-        setKeyInsights([`Client-side Service Error: ${iErr.message || 'Check terminal'}`]);
-      } finally {
-        if (autoSave) {
-          // AUTO SAVE LOGIC
-          await onSave({
-            id: Math.random().toString(36).substr(2, 9),
-            patientId: patientName,
-            date: new Date().toISOString(),
-            type: 'Consultation',
-            content: result.soapNote!,
-            rawTranscript: result.fullText,
-            utterances: result.utterances,
-            summary: (result.soapNote as any).summary || result.soapNote!.assessment,
-            keyInsights: finalInsights,
-            // Pass extended patient info
-            age: parseInt(patientAge),
-            weight: patientWeight,
-            height: patientHeight,
-            bloodGroup: patientBloodGroup,
-            gender: patientGender,
-            nationality: patientNationality,
-            language: patientLanguage
-          } as any, blob);
-        } else {
-          setSessionState('RESULT');
-        }
-      }
+    // We construct a partial note to satisfy the type system, the real work happens in page.tsx
+    await onSave({
+      patientId: patientName,
+      // Pass gathered metadata
+      age: parseInt(patientAge) || 0,
+      weight: patientWeight,
+      height: patientHeight,
+      bloodGroup: patientBloodGroup,
+      gender: patientGender,
+      nationality: patientNationality,
+      language: patientLanguage,
 
-    } catch (err) {
-      console.error('Processing error:', err);
-      setError('Cognitive synthesis interrupted.');
-      setSessionState('INIT'); // Go back to start on error
-    }
+      // Dummy fields
+      id: 'temp',
+      date: new Date().toISOString(),
+      type: 'Consultation',
+      content: {} as any,
+      rawTranscript: '',
+      utterances: [],
+      summary: '',
+      keyInsights: []
+    } as any, blob);
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {

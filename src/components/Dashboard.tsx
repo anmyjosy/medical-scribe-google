@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Search, Calendar, Clock, ChevronRight, Mic, Play, Pause, Square, FileText, ChevronDown, Trash2, Edit2, LogOut, Menu, X, ExternalLink, Sparkles, AlertCircle, Upload, File, MoreVertical, Check, Loader2, Download, Printer, Activity, Heart, Wind, Info, Volume2, Settings, User, Bell, RefreshCcw, BrainCircuit, ChevronLeft, Stethoscope } from 'lucide-react';
 import Sidebar from './Sidebar';
 import AudioPlayer from './AudioPlayer';
+import { FeatureCarousel } from './FeatureCarousel';
 import { PrescriptionPad } from './PrescriptionPad';
 import { uploadPatientFile, getConsultationFiles, deletePatientFile } from '@/services/fileUploadService';
 import { User as UserType, Patient, MedicalNote, View, PatientFile, PrefilledPatientData } from '@/types';
@@ -61,6 +62,8 @@ const InsightCard = ({ title, items, color }: any) => {
     </div>
   );
 }
+
+
 
 const ActionBtn = ({ icon, label, color = "text-slate-400", onClick, id }: any) => (
   <button id={id} onClick={onClick} className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl flex items-center gap-2 sm:gap-2.5 hover:bg-slate-50 transition-all ${color} group`}>
@@ -836,24 +839,26 @@ ${fileContext}
             <p className="text-slate-400 font-medium text-sm mb-4">Select a patient to view consultation history</p>
 
             {/* Search Bar */}
-            <div className="relative max-w-md">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                type="text"
-                placeholder="Search patients by name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-slate-400 transition-all shadow-sm"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  <X size={16} className="text-slate-400" />
-                </button>
-              )}
-            </div>
+            {patients.length > 0 && (
+              <div className="relative max-w-md">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Search patients by name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-slate-400 transition-all shadow-sm"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    <X size={16} className="text-slate-400" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 max-w-7xl">
@@ -891,32 +896,60 @@ ${fileContext}
                 </div>
               ))}
 
-            {/* No Results Message */}
-            {searchQuery && patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
-              <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-                  <Search size={28} className="text-slate-300" />
+            {/* Empty State / Search Results handling */}
+            {patients.length === 0 && !searchQuery ? (
+              // EMPTY STATE - FIRST TIME USER
+              <div className="col-span-full h-[60vh] flex flex-col justify-center">
+                <div className="flex flex-col md:flex-row items-center justify-center gap-10 md:gap-20">
+                  {/* Carousel - Middle on Mobile, Side on Desktop */}
+                  <div className="w-full max-w-sm md:w-1/2 flex justify-center order-2 md:order-2">
+                    <FeatureCarousel />
+                  </div>
+
+                  {/* CTA Section - Side on Desktop */}
+                  <div className="hidden md:block text-center md:text-left md:w-1/2 max-w-md order-1 md:order-1">
+                    <h2 className="text-3xl md:text-5xl font-black text-slate-800 tracking-tight leading-none mb-4">
+                      Welcome to <br />
+                      <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">MedScribe AI</span>
+                    </h2>
+                    <p className="text-slate-500 font-medium text-lg mb-8 leading-relaxed">
+                      Your intelligent medical assistant. Start by creating your first patient session to experience the power of AI documentation.
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-slate-600 mb-2">No patients found</h3>
-                <p className="text-sm text-slate-400 mb-4">No patients match "{searchQuery}"</p>
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="text-xs font-bold text-black hover:underline"
-                >
-                  Clear search
-                </button>
               </div>
+            ) : (
+              // SEARCH RESULTS or LIST
+              <>
+                {searchQuery && patients.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                  <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                      <Search size={28} className="text-slate-300" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-600 mb-2">No patients found</h3>
+                    <p className="text-sm text-slate-400 mb-4">No patients match "{searchQuery}"</p>
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="text-xs font-bold text-black hover:underline"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="hidden md:flex bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex-col items-center justify-center text-center p-6 hover:bg-slate-100 hover:border-black/10 transition-all group min-h-[240px] max-w-xs mx-auto md:mx-0"
-            >
-              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform text-black">
-                <ExternalLink size={20} />
-              </div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-black/40 group-hover:text-black transition-colors">Register New Patient</span>
-            </button>
+            {patients.length > 0 && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="hidden md:flex bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2rem] flex-col items-center justify-center text-center p-6 hover:bg-slate-100 hover:border-black/10 transition-all group min-h-[240px] max-w-xs mx-auto md:mx-0"
+              >
+                <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform text-black">
+                  <ExternalLink size={20} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-black/40 group-hover:text-black transition-colors">Register New Patient</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1527,7 +1560,7 @@ ${fileContext}
                                 <div className="flex flex-wrap gap-2 items-center">
                                   <span className="text-sm font-medium text-slate-600 mr-2">Suspect</span>
                                   <span className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-black border border-emerald-100 shadow-sm">
-                                    {(translatedData?.assessment || selectedConsultation.content.assessment).split(/[,.]/)[0] || "Viral Upper Respiratory Infection"}
+                                    {(translatedData?.assessment || selectedConsultation.content?.assessment || "").split(/[,.]/)[0] || "Viral Upper Respiratory Infection"}
                                   </span>
                                 </div>
                                 <p className="mt-4 text-xs font-medium text-slate-500 italic">
