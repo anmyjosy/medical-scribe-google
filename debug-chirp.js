@@ -7,7 +7,7 @@ const client = new v2.SpeechClient({
     apiEndpoint: 'us-central1-speech.googleapis.com'
 });
 
-const PROJECT_ID = 'premium-pulsar-483503-k0';
+const PROJECT_ID = 'tenxds-agents-idp';
 const location = 'us-central1';
 const recognizerName = `projects/${PROJECT_ID}/locations/${location}/recognizers/_`;
 
