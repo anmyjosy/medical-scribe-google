@@ -3,7 +3,7 @@ import path from 'path';
 
 // Helper to initialize Vertex AI client
 const getVertexClient = () => {
-    let project = 'premium-pulsar-483503-k0'; // Default fallback
+    let project = 'tenxds-agents-idp'; // Default fallback
     let location = 'us-central1';
     let credentials;
 
