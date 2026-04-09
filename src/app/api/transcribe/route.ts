@@ -80,9 +80,9 @@ async function getOrCreateRecognizer(
     }
 }
 
-// --- 1. POST: Start Processing (Async) ---
+// --- 1. POST: Process Audio (Synchronous / No Storage) ---
 export async function POST(request: NextRequest) {
-    console.log('[Async] Starting transcription request...');
+    console.log('[Sync] Starting transcription request without GCS...');
 
     try {
         const formData = await request.formData();
@@ -107,23 +107,7 @@ export async function POST(request: NextRequest) {
         else if (isHindi) language = 'hi-IN';
         else if (!language.includes('-')) language = 'en-US';
 
-        console.log(`[Async] Language: ${language}, Mime: ${mimeType}`);
-
-        // 1. Upload to GCS
-        const filename = `audio-${Date.now()}-${Math.random().toString(36).substring(7)}${mimeType.includes('mp3') ? '.mp3' : mimeType.includes('webm') ? '.webm' : '.wav'}`;
-        const bucket = storage.bucket(BUCKET_NAME);
-        const fileUpload = bucket.file(filename);
-        const gcsUri = `gs://${BUCKET_NAME}/${filename}`;
-
-        // Output URI for the result JSON (used by GET)
-        const outputUri = gcsUri + '.json';
-
-        console.log(`[Async] Uploading to GCS: ${gcsUri}`);
-        try {
-            await fileUpload.save(buffer, { contentType: mimeType });
-        } catch (err) {
-            try { await bucket.create({ location: 'us' }); await fileUpload.save(buffer, { contentType: mimeType }); } catch (e) { }
-        }
+        console.log(`[Sync] Language: ${language}, Mime: ${mimeType}`);
 
         const projectId = 'tenxds-agents-idp';
         const location = 'us';
@@ -134,7 +118,7 @@ export async function POST(request: NextRequest) {
 
         if (isMalayalam) {
             useLLMDiarization = true;
-            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-malayalam-chirp-3-batch', {
+            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-malayalam-chirp-3-sync', {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true } },
                 model: 'chirp_3',
                 languageCodes: ['ml-IN'],
@@ -142,7 +126,7 @@ export async function POST(request: NextRequest) {
         }
         else if (isArabic) {
             useLLMDiarization = true;
-            const recId = `medscribe-arabic-${language.replace('-', '').toLowerCase()}-chirp-3-batch`;
+            const recId = `medscribe-arabic-${language.replace('-', '').toLowerCase()}-chirp-3-sync`;
             recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, recId, {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true } },
                 model: 'chirp_3',
@@ -151,7 +135,7 @@ export async function POST(request: NextRequest) {
         }
         else if (isHindi) {
             useLLMDiarization = false;
-            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-hindi-chirp-3-diarization', {
+            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-hindi-chirp-3-sync-diarization', {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true, diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 } } },
                 model: 'chirp_3',
                 languageCodes: ['hi-IN'],
@@ -159,109 +143,29 @@ export async function POST(request: NextRequest) {
         }
         else {
             useLLMDiarization = false;
-            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-english-chirp-3-diarization', {
+            recognizerName = await getOrCreateRecognizer(googleClientV2, projectId, location, 'medscribe-english-chirp-3-sync-diarization', {
                 defaultRecognitionConfig: { features: { enableWordTimeOffsets: true, diarizationConfig: { minSpeakerCount: 2, maxSpeakerCount: 6 } } },
                 model: 'chirp_3',
                 languageCodes: ['en-US'],
             });
         }
 
-        // 3. Start LRO (Do NOT await completion)
-        console.log(`[Async] Starting Batch Operation... Output: ${outputUri}`);
-        const [operation] = await googleClientV2.batchRecognize({
+        // 3. Start Sync Operation (No GCS Uploads)
+        console.log(`[Sync] Calling recognize()...`);
+        const syncRequest = {
             recognizer: recognizerName,
             config: { autoDecodingConfig: {} },
-            files: [{ uri: gcsUri }],
-            // CRITICAL: Write output to GCS so we can fetch it easily in GET
-            recognitionOutputConfig: {
-                gcsOutputConfig: { uri: outputUri }
-            }
-        });
+            content: buffer.toString('base64')
+        };
 
-        // Return Job ID immediately
-        return NextResponse.json({
-            jobId: operation.name, // "projects/.../locations/.../operations/..."
-            gcsUri,
-            outputUri, // Output URI (Wait for .json)
-            language,
-            useLLMDiarization,
-            status: 'processing'
-        });
+        const [response] = await googleClientV2.recognize(syncRequest);
 
-    } catch (error: any) {
-        console.error('[Async] POST Error:', error);
-        return NextResponse.json({ error: error.message || 'Failed to start transcription' }, { status: 500 });
-    }
-}
-
-// --- 2. GET: Poll Status & Retrieve Result ---
-export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url);
-    const operationName = searchParams.get('jobId');
-    const outputUri = searchParams.get('outputUri'); // GCS URI for JSON result
-    const useLLMDiarization = searchParams.get('useLLM') === 'true';
-
-    if (!operationName || !outputUri) {
-        return NextResponse.json({ error: 'Missing jobId or outputUri' }, { status: 400 });
-    }
-
-    try {
-        console.log(`[Async] Polling Job: ${operationName}`);
-
-        // 1. Check Operation Status
-        const [operation] = await googleClientV2.operationsClient.getOperation({ name: operationName } as any);
-
-        if (!operation.done) {
-            return NextResponse.json({ status: 'processing' });
+        // 4. Parse Results
+        let transcriptResults = response.results || [];
+        if (transcriptResults.length > 0 && (transcriptResults[0] as any).transcript?.results) {
+            transcriptResults = (transcriptResults[0] as any).transcript.results;
         }
 
-        if (operation.error) {
-            throw new Error(operation.error.message);
-        }
-
-        console.log('[Async] Job Done. Fetching result from GCS:', outputUri);
-
-        // 2. Fetch Result from GCS (JSON)
-        // outputUri is like gs://bucket/filename.wav.json
-        // Google STT adds a suffix (creates a folder), so we treat this as a prefix.
-        const match = outputUri.match(/gs:\/\/([^\/]+)\/(.+)/);
-        if (!match) throw new Error('Invalid Output URI format');
-
-        const outputBucketName = match[1];
-        const outputPrefix = match[2];
-        const bucket = storage.bucket(outputBucketName);
-
-        // List files with the prefix
-        const [files] = await bucket.getFiles({ prefix: outputPrefix });
-
-        if (files.length === 0) {
-            console.error(`[Async] No output files found with prefix: ${outputPrefix}`);
-            throw new Error(`Output file not found in GCS`);
-        }
-
-        // We expect one result file for one input file, usually deeply nested
-        const file = files[0];
-        console.log(`[Async] Found output file: ${file.name}`);
-
-        const [content] = await file.download();
-        const jsonResponse = JSON.parse(content.toString());
-
-        console.log('[Async] GCS JSON Response (truncated):', JSON.stringify(jsonResponse).substring(0, 500));
-
-        // Handle both possible structures (Direct results vs BatchFileResult)
-        let transcriptResults = jsonResponse.results || [];
-
-        // If the first item has a nested 'transcript' object (BatchRecognizeFileResult structure), unwrap it.
-        // But logs showed direct { results: [ { alternatives: ... } ] }
-        if (transcriptResults.length > 0 && transcriptResults[0].transcript?.results) {
-            transcriptResults = transcriptResults[0].transcript.results;
-        }
-
-        if (transcriptResults.length === 0) {
-            console.warn('[Async] No results found in JSON:', JSON.stringify(jsonResponse).substring(0, 200));
-        }
-
-        // Extract Full Text
         const fullText = transcriptResults
             .map((r: any) => r.alternatives?.[0]?.transcript)
             .join(' ') || '';
@@ -269,10 +173,10 @@ export async function GET(request: NextRequest) {
         const rawWords = transcriptResults.flatMap((r: any) => r.alternatives?.[0]?.words || []);
         let utterances: any[] = [];
 
-        // 3. Post-Processing (Diarization)
+        // 5. Post-Processing (Diarization)
         if (useLLMDiarization) {
             // --- LLM Diarization Logic ---
-            console.log(`[Async] Running LLM Diarization...`);
+            console.log(`[Sync] Running LLM Diarization...`);
 
             const normalizedWords = rawWords.map((w: any) => ({
                 word: w.word,
@@ -281,16 +185,14 @@ export async function GET(request: NextRequest) {
             })).sort((a: any, b: any) => getMs(a.startTime) - getMs(b.startTime));
 
             if (normalizedWords.length > 0) {
-                const langCode = searchParams.get('language') || 'en-US';
-                const langName = langCode.includes('ar') ? 'Arabic' : (langCode.includes('ml') ? 'Malayalam' : 'English');
-
+                const langName = isArabic ? 'Arabic' : (isMalayalam ? 'Malayalam' : 'English');
                 utterances = await diarizeWithGroq(normalizedWords, langName);
             } else {
                 utterances = [{ speaker: 'Speaker A', text: fullText, start: 0, end: 0 }];
             }
         } else {
             // --- Native Diarization Parsing ---
-            console.log('[Async] Parsing Native Diarization...');
+            console.log('[Sync] Parsing Native Diarization...');
 
             rawWords.sort((a: any, b: any) => getMs(a.startOffset || a.startTime) - getMs(b.startOffset || b.startTime));
 
@@ -332,16 +234,11 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Cleanup: Optionally delete the result file? 
-        try { await file.delete(); } catch (e) { }
-        // Also delete input file? (Passed as gcsUri param)
-        // We can reconstruct input file obj if needed, but let's leave it or implement separate cleanup job.
-
         return NextResponse.json({ status: 'completed', text: fullText, utterances });
 
     } catch (error: any) {
-        console.error('[Async] GET Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('[Sync] POST Error:', error);
+        return NextResponse.json({ error: error.message || 'Failed to sync transcribe' }, { status: 500 });
     }
 }
 
