@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
             try { await bucket.create({ location: 'us' }); await fileUpload.save(buffer, { contentType: mimeType }); } catch (e) { }
         }
 
-        const projectId = 'premium-pulsar-483503-k0';
+        const projectId = 'tenxds-agents-idp';
         const location = 'us';
 
         // 2. Configure Recognizer
