@@ -1,4 +1,5 @@
-
+// src/services/aiService.ts
+import { convertToWavBlobs } from '@/utils/audioUtils';
 
 const API_BASE_URL = '';
 
@@ -6,22 +7,15 @@ export const generateKeyInsights = async (text: string): Promise<string[]> => {
     try {
         const response = await fetch(`${API_BASE_URL}/api/generate-insights`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text })
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server responded with ${response.status}: ${errorText}`);
-        }
-
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
         const data = await response.json();
         return data.insights || [];
     } catch (error: any) {
-        console.error('Groq service error details:', error);
-        return [`Groq Endpoint Failed: ${error.message || 'Connection Refused'}`];
+        console.error('Groq service error:', error);
+        return [`Analysis failed: ${error.message}`];
     }
 };
 
@@ -36,7 +30,6 @@ export const askAI = async (prompt: string, context?: string): Promise<string> =
         const data = await response.json();
         return data.answer;
     } catch (error) {
-        console.error('AI Ask Error:', error);
         return 'AI Service Unavailable';
     }
 };
@@ -51,7 +44,6 @@ export const generatePrescription = async (text: string): Promise<{ medications:
         if (!response.ok) throw new Error('Failed to generate prescription');
         return await response.json();
     } catch (error) {
-        console.error('Prescription Gen Error:', error);
         throw error;
     }
 };
@@ -63,95 +55,81 @@ export const translateText = async (text: string, targetLanguage: string): Promi
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, targetLanguage })
         });
-
         if (!response.ok) throw new Error('Translation failed');
         const data = await response.json();
         return data.translatedText;
     } catch (error) {
-        console.error('Translation Error:', error);
-        return text; // Fallback to original
+        return text; 
     }
 };
 
+/**
+ * NEW CHUNKED CONSULTATION PROCESSOR
+ * Handles audio > 60s by splitting into 55s segments
+ */
 export const processConsultation = async (audioBlob: Blob, language: string = 'ml-IN'): Promise<{ soapNote: any, utterances: any[], fullText: string }> => {
     try {
-        // 1. Start Transcription Job (Async)
-        const formData = new FormData();
-        formData.append('audio', audioBlob);
-        formData.append('language', language);
+        let blobs: Blob[] = [audioBlob];
+        const CHUNK_DURATION_SEC = 55;
 
-        console.log('[Client] Starting Transcription Job...');
-        const startResponse = await fetch('/api/transcribe', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!startResponse.ok) {
-            const err = await startResponse.json();
-            throw new Error(err.error || 'Transcription start failed');
+        // 1. Slice audio into 55-second WAV chunks 
+        console.log(`[Client] Chunking audio (max ${CHUNK_DURATION_SEC}s per segment)...`);
+        try {
+            blobs = await convertToWavBlobs(audioBlob, CHUNK_DURATION_SEC);
+            console.log(`[Client] Generated ${blobs.length} chunks.`);
+        } catch (err) {
+            console.warn('[Client] Chunking failed, sending as single file.', err);
         }
 
-        const startData = await startResponse.json();
+        let fullText = '';
+        let allUtterances: any[] = [];
 
-        let text = '';
-        let utterances: any[] = [];
+        // 2. Process chunks sequentially to stay under the 60s limit per request
+        for (let i = 0; i < blobs.length; i++) {
+            const chunkBlob = blobs[i];
+            console.log(`[Client] Transcribing segment ${i + 1}/${blobs.length}...`);
+            
+            const formData = new FormData();
+            formData.append('audio', chunkBlob);
+            formData.append('language', language);
 
-        // 2. Poll for Completion using Job ID
-        if (startData.status === 'processing' && startData.jobId) {
-            console.log(`[Client] Job Started: ${startData.jobId}. Polling...`);
+            const response = await fetch('/api/transcribe', {
+                method: 'POST',
+                body: formData
+            });
 
-            const jobId = startData.jobId;
-            const outputUri = startData.outputUri; // Needed for fetching GCS result
-            const useLLM = startData.useLLMDiarization; // Needed to re-trigger correct logic on server if needed (though server has it in params)
-
-            let attempts = 0;
-            const maxAttempts = 60; // 2 minutes (2s * 60)
-
-            while (attempts < maxAttempts) {
-                // Wait 2s
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                const pollUrl = `/api/transcribe?jobId=${encodeURIComponent(jobId)}&outputUri=${encodeURIComponent(outputUri)}&language=${encodeURIComponent(language)}&useLLM=${useLLM}`;
-                const pollResponse = await fetch(pollUrl);
-
-                if (!pollResponse.ok) {
-                    // Try to parse specific error or just throw
-                    const errText = await pollResponse.text();
-                    throw new Error(`Polling failed: ${pollResponse.status} ${errText}`);
-                }
-
-                const pollData = await pollResponse.json();
-
-                if (pollData.status === 'completed') {
-                    console.log('[Client] Job Completed!');
-                    text = pollData.text;
-                    utterances = pollData.utterances;
-                    break;
-                } else if (pollData.error) {
-                    throw new Error(pollData.error);
-                }
-
-                attempts++;
-                if (attempts % 5 === 0) console.log(`[Client] Still processing... (${attempts * 2}s)`);
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || `Failed on chunk ${i + 1}`);
             }
 
-            if (!text) throw new Error('Transcription timed out or failed to return text.');
+            const data = await response.json();
+            
+            // Accumulate transcript text
+            if (data.text) {
+                fullText += (fullText ? ' ' : '') + data.text;
+            }
 
-        } else {
-            // Fallback if somehow it returned immediately (e.g. cached or short path if we kept it)
-            // But our current POST always returns processing.
-            text = startData.text;
-            utterances = startData.utterances;
+            // Sync timestamps by adding the time offset for this chunk
+            if (data.utterances && Array.isArray(data.utterances)) {
+                const timeOffset = i * CHUNK_DURATION_SEC * 1000;
+                const shifted = data.utterances.map((u: any) => ({
+                    ...u,
+                    start: u.start + timeOffset,
+                    end: u.end + timeOffset
+                }));
+                allUtterances = allUtterances.concat(shifted);
+            }
         }
 
-        if (!text) throw new Error('No transcript generated');
+        if (!fullText) throw new Error('No transcript was generated.');
 
-        // 3. Generate SOAP
+        // 3. Generate Clinical SOAP Note
         console.log('[Client] Generating SOAP Note...');
         const soapResponse = await fetch('/api/generate-soap', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, utterances })
+            body: JSON.stringify({ text: fullText, utterances: allUtterances })
         });
 
         if (!soapResponse.ok) {
@@ -163,8 +141,8 @@ export const processConsultation = async (audioBlob: Blob, language: string = 'm
 
         return {
             soapNote,
-            utterances,
-            fullText: text
+            utterances: allUtterances,
+            fullText: fullText
         };
 
     } catch (error) {
