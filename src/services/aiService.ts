@@ -70,7 +70,7 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 export const processConsultation = async (audioBlob: Blob, language: string = 'ml-IN'): Promise<{ soapNote: any, utterances: any[], fullText: string }> => {
     try {
         let blobs: Blob[] = [audioBlob];
-        const CHUNK_DURATION_SEC = 55;
+        const CHUNK_DURATION_SEC = 25;
 
         // 1. Slice audio into 55-second WAV chunks 
         console.log(`[Client] Chunking audio (max ${CHUNK_DURATION_SEC}s per segment)...`);
